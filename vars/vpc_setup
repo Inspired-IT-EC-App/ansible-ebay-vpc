@@ -8,7 +8,7 @@ PubSub1Cidr: 10.14.0.0/25
 PubSub2Cidr: 10.14.0.128/25
 PrivSub1Cidr: 10.14.1.0/25
 PrivSub2Cidr: 10.14.1.128/25
-PrivSub2Cidr: 10.14.1.128/25
+
 
 # Region
 

@@ -1,0 +1,155 @@
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Import VPC Variables
+      include_vars: vars/vpc_setup
+
+    - name: Create ebay VPC
+      ec2_vpc_net:
+        name: "{{vpc_name}}"
+        cidr_block: "{{vpcCidr}}"
+        region: "{{region}}"
+        dns_support: yes
+        dns_hostnames: yes
+        tenancy: default
+        state: present
+      register: vpcout
+
+    #- debug:
+    #   var: vpcout
+
+    - name: create the public subnet 1
+      ec2_vpc_subnet:
+        state: present
+        vpc_id: "{{vpcout.vpc.id}}"
+        cidr: "{{PubSub1Cidr}}"
+        az: "{{zone1}}"
+        region: "{{region}}"
+        map_public: yes
+        resource_tags:
+          Name: ebay-Pubsub1
+      register: pubsub1_out
+
+    - name: create the public subnet 2
+      ec2_vpc_subnet:
+        state: present
+        vpc_id: "{{vpcout.vpc.id}}"
+        cidr: "{{PubSub2Cidr}}"
+        az: "{{zone2}}"
+        region: "{{region}}"
+        map_public: yes
+        resource_tags:
+          Name: ebay-Pubsub2
+      register: pubsub2_out
+
+
+    # Private Subnet code
+
+    - name: create the Private subnet 1
+      ec2_vpc_subnet:
+        state: present
+        vpc_id: "{{vpcout.vpc.id}}"
+        cidr: "{{PrivSub1Cidr}}"
+        az: "{{zone1}}"
+        region: "{{region}}"
+        map_public: yes
+        resource_tags:
+          Name: ebay-Privatesub1
+      register: privatesub1_out
+
+    - name: create the private subnet 2
+      ec2_vpc_subnet:
+        state: present
+        vpc_id: "{{vpcout.vpc.id}}"
+        cidr: "{{PrivSub2Cidr}}"
+        az: "{{zone2}}"
+        region: "{{region}}"
+        map_public: yes
+        resource_tags:
+          Name: ebay-Privatesub2
+      register: privatesub2_out
+
+
+    # internet gateway setup
+    - name: Internet Gateway setup
+      ec2_vpc_igw:
+        vpc_id: "{{vpcout.vpc.id}}"
+        state: present
+        region: "{{region}}"
+        resource_tags:
+          Name: ebay-IGW
+      register: studybixigw_out
+
+    # Setup Public RT
+    - name: Route Table for Public Subnet
+      ec2_vpc_route_table:
+        vpc_id: "{{vpcout.vpc.id}}"
+        region: "{{region}}"
+        tags:
+          Name: ebay-PubRT
+        subnets:
+          - "{{pubsub1_out.subnet.id}}"
+          - "{{pubsub2_out.subnet.id}}"
+        routes:
+          - dest: 0.0.0.0/0
+            gateway_id: "{{studybixigw_out.gateway_id}}"
+      register: pubRT_out
+
+    # Setup NAT Gateway
+
+    - name: Create new nat gateway
+      ec2_vpc_nat_gateway:
+        state: "{{state}}"
+        subnet_id: "{{pubsub1_out.subnet.id}}"
+        wait: yes
+        region: "{{region}}"
+        if_exist_do_not_create: true
+      register: NATGW_out
+
+    # Setup route table for NAT Gateway
+    - name: Route Table for Priavte Subnet
+      ec2_vpc_route_table:
+        vpc_id: "{{vpcout.vpc.id}}"
+        region: "{{region}}"
+        tags:
+          Name: Studybix-PrivateRT
+        subnets:
+          - "{{privatesub1_out.subnet.id}}"
+          - "{{privatesub2_out.subnet.id}}"
+        routes:
+          - dest: 0.0.0.0/0
+            gateway_id: "{{NATGW_out.nat_gateway_id}}"
+      register: privRT_out
+
+    - debug:
+        var: "{{item}}"
+      loop:
+        - vpcout.vpc.id
+        - pubsub1_out.subnet.id
+        - pubsub2_out.subnet.id
+        - privatesub1_out.subnet.id
+        - privatesub2_out.subnet.id
+        - NATGW_out.nat_gateway_id
+        - privRT_out.route_table.id
+        - pubRT_out.route_table.id
+        - studybixigw_out.gateway_id
+
+    - set_fact:
+        vpcid: "{{ vpcout.vpc.id  }}"
+        pubsub1id: "{{ pubsub1_out.subnet.id }}"
+        pubsub2id: "{{ pubsub2_out.subnet.id }}"
+        pubsub3id: "{{ pubsub3_out.subnet.id }}"
+        privsub1id: "{{ privatesub1_out.subnet.id }}"
+        privsub2id: "{{  privatesub2_out.subnet.id }}"
+        privsub3id: "{{  privatesub3_out.subnet.id }}"
+        NATGWid: "{{ NATGW_out.nat_gateway_id }}"
+        privRTid: "{{ privRT_out.route_table.id }}"
+        pubRTid: "{{ pubRT_out.route_table.id }}"
+        IGWid: "{{ studybixigw_out.gateway_id }}"
+        cacheable: yes
+
+    - name: Careate variable file for vpc output
+      copy:
+        content: "vpcid: {{ vpcout.vpc.id  }}\npubsub1id: {{ pubsub1_out.subnet.id }}\npubsub2id: {{ pubsub2_out.subnet.id }}\npubsub3id: {{ pubsub3_out.subnet.id }}\nprivsub1id: {{ privatesub1_out.subnet.id }}\nprivsub2id: {{  privatesub2_out.subnet.id }}\nprivsub3id: {{  privatesub3_out.subnet.id }}\nNATGWid: {{ NATGW_out.nat_gateway_id }}\nprivRTid: {{ privRT_out.route_table.id }}\nIGWid: {{ studybixigw_out.gateway_id }}\nIGWid: {{ studybixigw_out.gateway_id }}"
+        dest: vars/output.vars
